@@ -1,10 +1,12 @@
 import re
+import os
 import pinyin
 import jieba
 import pykakasi
 import MeCab
 import ipadic
 import webvtt
+from webvtt import WebVTT
 from hangul_romanize import Transliter
 from hangul_romanize.rule import academic
 from pyvi import ViTokenizer
@@ -26,44 +28,45 @@ app = FastAPI()
 @app.post('/netflix')
 def get_result_data(item: Item):
 
-    item_dict = item.dict()
-    sub = item_dict.sub
-    lang = item_dict.lang
-    sub_type = item_dict.sub_type
+    sub = item.sub
+    lang = item.lang
+    sub_type = item.sub_type
+    main_type = sub_type
 
-    sub = get_subtitle_data_file_name(sub)
+    vtt_file_path = get_subtitle_data_file_name(input_string=sub)
+    vtt_subtitle = extract_subtitle(file_path=vtt_file_path)
     sub_respone = list()
-    subtitle = extract_subtitle(sub)
 
     try:
         sub_type = sub_type.split("+")[1]
     except IndexError as e:
-        print()
         sub_type = ""
 
-    for sub in subtitle:
-        sentence = sub.text
-        sentence = re.sub(r"&.\w*.;", "", sentence)
+    for sub in vtt_subtitle:
+        sentence = re.sub(r"&.\w*.;", "", sub.text)
         tStartMs = sub.start
         dDurationMs = sub.end
-        tStartMs, dDurationMs = time_to_second(tStartMs, dDurationMs)
-        segs = get_segs_subtitle(sentence, lang)
+
+        tStartMs = get_total_ms(timestamp_str=sub.start)
+        dDurationMs = get_total_ms(timestamp_str=sub.end)
+
+        segments = get_segmented_subtitle(sentence=sentence, language=lang)
 
         sub_data = create_sub_json(
-            segs, tStartMs, dDurationMs, lang, sub_type, main_type, sub)
+            segments, tStartMs, dDurationMs, lang, sub_type, main_type, sub)
         sub_respone.append(sub_data)
 
-        json = {
-            "lang": lang,
-            "type": json['type'],
-            "sub": "WEBVTT"
-        }
+    #     json = {
+    #         "lang": lang,
+    #         "type": json['type'],
+    #         "sub": "WEBVTT"
+    #     }
 
-        for item in sub_respone:
-            # print(item)
-            json["sub"] += item
+    #     for item in sub_respone:
+    #         # print(item)
+    #         json["sub"] += item
 
-    return json
+    return {"message": vtt_subtitle}
 
 
 # seg = pkuseg.pkuseg()
@@ -82,22 +85,23 @@ chinese_need_phonetics = ["zh", "zh-CHS", "zh-Hans", "zh-CN",
 times_list = []
 
 
-def extract_subtitle(subtilte):
+def extract_subtitle(file_path: str) -> WebVTT:
     """
-    convert subtitle file from str to vtt object
-
-    parameter : subtitle : subtitle file
-
-    return : subtitle as vtt format
+        convert subtitle file path from str to vtt object
     """
-
-    vtt = webvtt.read(f'{subtilte}')
-    for i in vtt:
-        print(i.text)
-    remove_subtitle_file(subtilte)
-    clear_duplicate_times_from_subtitles(vtt)
-    print(vtt)
-    return vtt
+    try:
+        # clear_duplicate_times(file_path=file_path)
+        vtt = webvtt.read(file_path)
+        safe_remove(file_path)
+        return vtt
+    except FileNotFoundError:
+        print(f"Error: File '{file_path}' not found.")
+        safe_remove(file_path)
+        return None
+    except webvtt.errors.MalformedFileError:
+        print(f"Error: Malformed WebVTT file at '{file_path}'.")
+        safe_remove(file_path)
+        return None
 
 
 def convert_all_words_in_japanese_sentence(word, type):
@@ -163,27 +167,12 @@ def add_phonetics(word: list, language: str, sub_type: str):
         return "Sorry, phonetic is not available for this language."
 
 
-def get_segs_subtitle(sentence: str, language: str) -> list:
+def get_segmented_subtitle(sentence: str, language: str) -> list:
     """
-    words separator and get the phonetics of words
-
-    parameter : sentence : subtitle sentence
-    parameter : language : subtitle language
-
-    return : segmented subtitles
+        words separator and get the phonetics of words
     """
-
-    if language == "zh-Hans":
-        # return seg.cut(sentence)
-        return sentence.split(" ")
-
-    elif language == "zh-Hant":
+    if language == "zh-Hant" or language == "ja":
         return list(jieba.cut(sentence))
-
-    # elif language == "ja":
-    #     sentence = tagger.parse(sentence)
-    #     sentence = sentence.split()
-    #     print(sentence)
 
     elif language == "vi":
         return ViTokenizer.tokenize(sentence).split(" ")
@@ -191,66 +180,32 @@ def get_segs_subtitle(sentence: str, language: str) -> list:
     else:
         return sentence.split(" ")
 
-    return sentence
+
+def convert_to_time(timestamp_str):
+    h, m, s, ms = map(int, timestamp_str.replace('.', ':').split(':'))
+    return h, m, s, ms
 
 
-def time_to_second(tStartMs, dDurationMs):
-    """
-    Calculate the start and end time of the subtitle
-
-    parameter : tStartMs : subtitle start time
-    parameter : dDurationMs : subtitle end time
-
-    return : start and end time in milliseconds
-    """
-
-    start_time = tStartMs
-    end_time = dDurationMs
-    return end_time, dDurationMs
-    # start_time_ms = sum(
-    #     [
-    #         float(v) * 60 ** (len(start_time.split(":")) - i - 1)
-    #         for i, v in enumerate(start_time.split(":"))
-    #     ]
-    # )
-    # end_time_ms = sum(
-    #     [
-    #         float(v) * 60 ** (len(end_time.split(":")) - i - 1)
-    #         for i, v in enumerate(end_time.split(":"))
-    #     ]
-    # )
-    # return start_time_ms, (end_time_ms - start_time_ms)
+def get_total_ms(timestamp_str) -> float:
+    h, m, s, ms = convert_to_time(timestamp_str)
+    total_milliseconds = h * 3600000 + m * 60000 + s * 1000 + ms
+    # Convert the result to a float
+    total_milliseconds_float = float(total_milliseconds) / 1000.0
+    return total_milliseconds_float
 
 
-def create_sub_json(segs: list, tStartMs: int, dDurationMs: int, lang: str, sub_type: str, main_type, file):
-    # print("++++++++++++++++")
-    # print(file.text)
-    # print("++++++++++++++++")
-    # print(segs)
-    """
-    Create a json output
+def create_sub_json(segments: list, tStartMs: int, dDurationMs: int, lang: str, sub_type: str, main_type, file):
 
-    parameter : segs : subtitle segments
-    parameter : tStartMs : subtitle start time
-    parameter : dDurationMs : subtitle end time
-    paramter : lang : subtitle language
-    paramter : sub_type : subtitle type
-
-
-    return : dict output
-    """
-    # print(type(file))
     if lang not in languages_need_phonetics:
         sub_data = {
             "tStartMs": tStartMs,
             "dDurationMs": dDurationMs,
-            "sentence": segs
+            "sentence": segments
         }
         return sub_data
 
     else:
         i = file
-        # print(i.text)
         phonetics = list()
         txt = ""
         # for i in vtt:
@@ -291,66 +246,65 @@ def create_sub_json(segs: list, tStartMs: int, dDurationMs: int, lang: str, sub_
         # json["sub"] += txt
 
 
-def get_subtitle_data_file_name(subtilte: str) -> str:
+def get_subtitle_data_file_name(input_string: str, file_name: str = 'sub') -> str:
     """
-    create subtitle from str format to vtt file and return vtt file name
+        create subtitle from str format to vtt file and return vtt file name
+    """
+    lines = input_string.strip().split("\n\n")
+    vtt_content = "WEBVTT\n\n"
 
-    paramter : subtitle : subtitle string
-    """
-    file_name = "test"
-    # file2 = list(subtilte.strip())
-    file2_to_breaked_str = ''
-    print(f"S : {subtilte.strip()}")
-    print("----------------")
-    print(f"S : {subtilte}")
-    # for i in file2:
-    #     print(i)
-    #     file2_to_breaked_str+= i.strip() + '\n'
-    one = open(f'files/{file_name}', "w")
-    one.write(subtilte.strip())
-    one.close()
-    # file_name = "test"
-    # buffer = subtilte.encode().decode('utf-8')
-    # f = open(f"files/{file_name}.vtt", "w+b")
-    # f.write(buffer.encode())
-    # f.close()
+    for line in lines:
+        parts = line.split("\n")
+        if len(parts) >= 4 and parts[0].isdigit():
+            vtt_content += f"{parts[1]} --> {parts[2]}\n{parts[3]}\n\n"
+        else:
+            print(f"Invalid entry: {line}")
+
+    with open(f"files/{file_name}.vtt", "w", encoding="utf-8") as output_file:
+        output_file.write(vtt_content)
 
     return f"files/{file_name}.vtt"
 
 
-def clear_duplicate_times_from_subtitles(vtt_sub) -> bool:
-    """
-    clear duplicate times from subtitles
+def clear_duplicate_times(file_path: str) -> bool:
+    try:
+        vtt = webvtt.read(file_path)
 
-    param: vtt_sub: subtitles
-    return: True if clear duplicate times
-    """
-    for time in range(0, 3):
-        counter = 0
-        for sub in vtt_sub:
-            if sub.start in times_list:
-                text = sub.text
-                vtt_sub[counter-1].text += " "+text
-                del vtt_sub.captions[counter]
-                times_list.append(sub.start)
+        # Create a dictionary to store unique timestamps and captions
+        unique_times = {}
 
-            counter += 1
-            times_list.append(sub.start)
+        # Iterate through the captions and store only unique times in the dictionary
+        for caption in vtt:
+            start_time = caption.start
+            end_time = caption.end
+            if (start_time, end_time) not in unique_times:
+                unique_times[(start_time, end_time)] = caption.text
+            else:
+                print(f"Removing duplicate caption: {caption.text}")
+                vtt.captions.remove(caption)
 
-        times_list.clear()
+        # Write the updated captions back to the file
+        with open(file_path, "w", encoding="utf-8") as output_file:
+            output_file.write(str(vtt))
+
+        return True
+    except FileNotFoundError:
+        print(f"Error: File '{file_path}' not found.")
+        return False
+    except Exception as e:
+        print(f"Error: An unexpected error occurred - {e}")
+        return False
 
 
-def remove_subtitle_file(file_name: str):
-    """
-    Remove subtitle file
-
-    paramter : file_name : subtitle file name
-    """
-    pass
-    # try:
-    #     os.remove(file_name)
-    # except OSError as e:
-    #     print("Error: %s - %s." % (e.filename, e.strerror))
+def safe_remove(file_path: str) -> None:
+    try:
+        os.remove(file_path)
+        print(f"File '{file_path}' successfully removed.")
+    except FileNotFoundError:
+        print(f"Error: File '{file_path}' not found.")
+    except Exception as e:
+        print(
+            f"Error: An unexpected error occurred while removing the file - {e}")
 
 
 app.add_middleware(
