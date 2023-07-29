@@ -15,36 +15,37 @@ from bs4 import BeautifulSoup
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+
+class Item(BaseModel):
+    sub: str
+    lang: str | None = "ja"
+    sub_type: str
+
 
 app = FastAPI()
 
 @app.post('/netflix')
-def get_result_data(json : dict):
-    sub = json['sub']
-    lang = json['lang']
-    sub_type = json['type']
-    main_type = sub_type
-# def get_result_data(sub: str, lang: str, sub_type: str):
-    """
-    Get the final output of the processed subtitle
-
-    paramter : sub : subtitle
-    paramter : lang : subtitle language
-    parameter : sub_type : subtilte type
-
-    return : list of segments and phonetics
-    """
+def get_result_data(item: Item):
+    
+    item_dict = item.dict()
+    sub = item_dict.sub
+    lang = item_dict.lang
+    sub_type = item_dict.sub_type
 
     sub = get_subtitle_data_file_name(sub)
     sub_respone = list()
     subtitle = extract_subtitle(sub)
+    
     try:
         sub_type = sub_type.split("+")[1]
-    except Exception:
+    except IndexError as e :
+        print()
         sub_type = ""
 
     for sub in subtitle:
-        sentence = sub.text
+        sentence = sub.text 
         sentence = re.sub(r"&.\w*.;", "", sentence)
         tStartMs = sub.start
         dDurationMs = sub.end
@@ -104,20 +105,15 @@ def extract_subtitle(subtilte):
 
 def convert_all_words_in_japanese_sentence(word , type):
     str = ""
-    # print(word)
-    # print("")
-    turning = kks.convert(word)
-    # print(turning)
+    turning =  kks.convert(word)
     for x in turning:
         print(f"ORIGINAL:{x['orig']}")
         if x['orig'] != "+" and x['orig'] != "\n":
             str+=f"<span class='lly-translatable-word'><span class='lly-translatable-word-transliteration'>{x[type]}</span>{x['orig']}</span> " 
-        # print(str)
     return str 
 
 
 def add_phonetics(word: list, language: str, sub_type: str):
-    # print(word)
     """
     Get the phonetics of words
 
