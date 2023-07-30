@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
+import webvtt
 from schema import Caption
 
 from utils import get_subtitle_data_file_name as gsdf 
@@ -24,7 +24,7 @@ app.add_middleware(
 
 
 @app.post('/netflix')
-def get_result_data(item: Caption) -> Caption:
+def get_result_data(item: Caption):
 
     sub_type = item.type
     vtt_file_path = gsdf(input_string=item.sub)
@@ -39,5 +39,8 @@ def get_result_data(item: Caption) -> Caption:
     for caption in vtt_subtitle:
         caption.text = csj(caption=caption, lang=item.lang, sub_type=sub_type)
 
-    return {"subtitle": caption}
+
+    sub = str(vtt_subtitle)
+    result = Caption(sub=sub, lang=item.lang, type=item.type)
+    return result
 
