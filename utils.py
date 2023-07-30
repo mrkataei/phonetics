@@ -6,7 +6,6 @@ import pykakasi
 import pinyin
 from hangul_romanize import Transliter
 from hangul_romanize.rule import academic
-from bs4 import BeautifulSoup
 
 
 
@@ -75,7 +74,6 @@ def get_total_ms(timestamp_str) -> float:
     # Convert the result to a float
     total_milliseconds_float = float(total_milliseconds) / 1000.0
     return total_milliseconds_float
-
 
 
 def clear_duplicate_times(file_path: str) -> bool:
@@ -169,7 +167,7 @@ def add_phonetics(text: str, language: str, sub_type: str) -> str:
     
 
 
-def create_sub_json(caption: WebVTT, lang: str, sub_type: str):
+def create_sub_json(caption: WebVTT, lang: str, sub_type: str) -> str:
 
     # sentence = re.sub(r"&.\w*.;", "", caption.text)
     # tStartMs = gts(timestamp_str=caption.start)
@@ -193,10 +191,6 @@ def create_sub_json(caption: WebVTT, lang: str, sub_type: str):
             cap_text = caption.text
 
         phonetics = add_phonetics(cap_text, lang, sub_type)
-        soup = BeautifulSoup(caption.text)
-        my = soup("span", {"class": "save-sentence"})
 
-
-        caption.text = phonetics + my[0]
-        return caption
+        return phonetics
 
