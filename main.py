@@ -1,6 +1,5 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import webvtt
 from schema import Caption
 
 from utils import get_subtitle_data_file_name as gsdf 
@@ -36,11 +35,11 @@ def get_result_data(item: Caption):
         print(e)
         sub_type = ""
 
+    sub_result = ""
     for caption in vtt_subtitle:
         caption.text = csj(caption=caption, lang=item.lang, sub_type=sub_type)
+        sub_result += f"WEBVTT\n\n{caption.identifier}\n{caption.start}-->{caption.end}\n{caption.text}\n\n"
 
-
-    sub = str(vtt_subtitle)
-    result = Caption(sub=sub, lang=item.lang, type=item.type)
+    result = Caption(sub=sub_result, lang=item.lang, type=item.type)
     return result
 
