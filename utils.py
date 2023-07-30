@@ -2,7 +2,16 @@ from webvtt import WebVTT ,read, errors
 from pyvi import ViTokenizer
 import os
 import jieba
+import pykakasi
+import pinyin
+from hangul_romanize import Transliter
+from hangul_romanize.rule import academic
+from bs4 import BeautifulSoup
 
+
+
+languages_need_phonetics = ["zh", "zh-CHS", "zh-Hans", "zh-CN",
+                            "zh-SG", "zh-CHT", "zh-Hant", "zh-HK", "zh-MO", "zh-TW", "ja", "ko"]
 
 
 def get_subtitle_data_file_name(input_string: str, file_name: str = 'sub') -> str:
@@ -110,3 +119,87 @@ def get_segmented_subtitle(sentence: str, language: str) -> list:
 
     else:
         return sentence.split(" ")
+    
+
+
+def convert_all_words_in_japanese_sentence(text: str, type: str) -> str:
+    result = ""
+    kks = pykakasi.kakasi()
+    turning = kks.convert(text)
+    for x in turning:
+        print(f"ORIGINAL:{x['orig']}")
+        if x['orig'] != "+" and x['orig'] != "\n":
+            result += f"<span class='lly-translatable-word'><span class='lly-translatable-word-transliteration'>{x[type]}</span>{x['orig']}</span> "
+    return result
+
+
+def add_phonetics(text: str, language: str, sub_type: str) -> str:
+    """
+        Get the phonetics of words
+    """
+    result = ""
+    if language in ["zh-Hant", "zh-Hans", "zh"]:
+        for word in text:
+            if word == "+" and word == "\n":
+                continue
+            ph = pinyin.get(word)
+            if ph == word:
+                continue
+            result += f"<span class='lly-translatable-word'><span class='lly-translatable-word-transliteration'>{ph}</span>{word}</span>"
+
+    elif language == "ja":
+        if sub_type is not None and sub_type.lower() == "hiragana":
+            converted = convert_all_words_in_japanese_sentence(text, 'hira')
+        else:
+            converted = convert_all_words_in_japanese_sentence(text, 'hepburn')
+        result = converted
+
+    elif language == "ko":
+        kor_transliter = Transliter(academic)
+        turened = kor_transliter.translit(text)
+        turened = turened.split("-")
+        for i in turened:
+            # for i in turened.split(" "):
+            result += f"<span class='lly-translatable-word'><span class='lly-translatable-word-transliteration'>{i}</span>{text}</span>"
+        return result
+
+    return result
+    
+
+
+def create_sub_json(caption: WebVTT, lang: str, sub_type: str):
+
+    # sentence = re.sub(r"&.\w*.;", "", caption.text)
+    # tStartMs = gts(timestamp_str=caption.start)
+    # dDurationMs = gts(timestamp_str=caption.end)
+    # segments = gss(sentence=sentence, language=lang)
+
+    
+    # dnot need any phonetics
+    if lang not in languages_need_phonetics:
+        return caption
+    
+    # need phonetics
+    else:
+        phonetics = list()
+        if lang in ["zh-Hant", "zh-Hans", "zh"]:
+            cuted = list(jieba.cut(caption.text))
+            phonetics.append(add_phonetics(cuted, lang, sub_type))
+            soup = BeautifulSoup(caption.text)
+            my = soup("span", {"class": "save-sentence"})
+
+
+        elif lang == "ja":
+            phonetics.append(add_phonetics(caption.text, lang, sub_type))
+            soup = BeautifulSoup(caption.text)
+            my = soup("span", {"class": "save-sentence"})
+
+
+        elif lang == "ko":
+            soup = BeautifulSoup(caption.text)
+            my = soup("span", {"class": "save-sentence"})
+            phonetics.append(add_phonetics(caption.text, lang, sub_type))
+
+        caption.text = phonetics[0] + my[0]
+        return caption
+
