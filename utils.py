@@ -1,5 +1,5 @@
 from webvtt import WebVTT ,read, errors
-from pyvi import ViTokenizer
+# from pyvi import ViTokenizer
 import os
 import jieba
 import pykakasi
@@ -52,6 +52,7 @@ def extract_subtitle(file_path: str) -> WebVTT:
         safe_remove(file_path)
         return None
     
+
 def safe_remove(file_path: str) -> None:
     try:
         os.remove(file_path)
@@ -115,7 +116,8 @@ def get_segmented_subtitle(sentence: str, language: str) -> list:
         return list(jieba.cut(sentence))
 
     elif language == "vi":
-        return ViTokenizer.tokenize(sentence).split(" ")
+        # return ViTokenizer.tokenize(sentence).split(" ")
+        return None
 
     else:
         return sentence.split(" ")
@@ -181,25 +183,20 @@ def create_sub_json(caption: WebVTT, lang: str, sub_type: str):
     
     # need phonetics
     else:
-        phonetics = list()
+        phonetics = ""
+        cap_text = ""
+
         if lang in ["zh-Hant", "zh-Hans", "zh"]:
-            cuted = list(jieba.cut(caption.text))
-            phonetics.append(add_phonetics(cuted, lang, sub_type))
-            soup = BeautifulSoup(caption.text)
-            my = soup("span", {"class": "save-sentence"})
+            caption.text = list(jieba.cut(caption.text))
+
+        elif lang == "ja" or lang == "ko":
+            cap_text = caption.text
+
+        phonetics = add_phonetics(cap_text, lang, sub_type)
+        soup = BeautifulSoup(caption.text)
+        my = soup("span", {"class": "save-sentence"})
 
 
-        elif lang == "ja":
-            phonetics.append(add_phonetics(caption.text, lang, sub_type))
-            soup = BeautifulSoup(caption.text)
-            my = soup("span", {"class": "save-sentence"})
-
-
-        elif lang == "ko":
-            soup = BeautifulSoup(caption.text)
-            my = soup("span", {"class": "save-sentence"})
-            phonetics.append(add_phonetics(caption.text, lang, sub_type))
-
-        caption.text = phonetics[0] + my[0]
+        caption.text = phonetics + my[0]
         return caption
 
